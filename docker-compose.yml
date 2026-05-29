@@ -1,0 +1,89 @@
+# ── GeoMx Mask Dashboard — docker-compose ────────────────────────────────────
+#
+# Usage
+# ─────
+# CPU (default):
+#   docker compose up                              # foreground
+#   docker compose up -d                           # detached
+#
+# GPU:
+#   docker compose --profile gpu up
+#   docker compose --profile gpu up -d
+#
+# Data volume
+# ───────────
+# Set GEOMX_DATA_DIR in a .env file or in your shell before running:
+#   export GEOMX_DATA_DIR=/path/to/your/tiff/folder
+#   docker compose up
+#
+# Or edit the default path in the volumes section below.
+# The /data mount inside the container is what you paste into the
+# "Folder path" sidebar field when the app loads.
+#
+# Stopping
+# ────────
+#   docker compose down           # stop and remove containers
+#   docker compose down -v        # also remove named volumes (if any)
+
+services:
+
+  # ── CPU service (always available) ─────────────────────────────────────────
+  geomx-cpu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: geomx-mask-dashboard:cpu
+    container_name: geomx_dashboard_cpu
+    profiles: ["", "cpu"]          # active with no profile flag (default)
+    ports:
+      - "${GEOMX_PORT:-8501}:8501"
+    volumes:
+      # Bind-mount the host data folder into /data inside the container.
+      # Change GEOMX_DATA_DIR or set it in a .env file.
+      - "${GEOMX_DATA_DIR:-./data}:/data"
+      # Optional: persist Streamlit session presets across container restarts
+      # (Streamlit session state is in-memory only; presets exported to JSON
+      #  land in /data via the Export button, so /data persistence is enough)
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── GPU service ─────────────────────────────────────────────────────────────
+  # Activate with:  docker compose --profile gpu up
+  geomx-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: geomx-mask-dashboard:gpu
+    container_name: geomx_dashboard_gpu
+    profiles: ["gpu"]
+    ports:
+      - "${GEOMX_PORT:-8501}:8501"
+    volumes:
+      - "${GEOMX_DATA_DIR:-./data}:/data"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CUDA_HOME=/usr/local/cuda
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1             # use 'all' to expose all GPUs
+              capabilities: [gpu]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s

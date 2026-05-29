@@ -1,0 +1,41 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Development / IDE
+.git/
+.gitignore
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test / CI artefacts
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# Data files — these are bind-mounted at runtime, not baked into the image.
+# Keeping them out dramatically reduces build context size for large TIFF sets.
+data/
+*.tif
+*.tiff
+Generated_Masks/
+
+# Documentation (not needed inside the container)
+*.docx
+*.pdf
+*.md
+
+# OS noise
+.DS_Store
+Thumbs.db
