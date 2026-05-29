@@ -1,0 +1,27 @@
+# ── Core (always required) ────────────────────────────────────────────────────
+streamlit>=1.35.0
+numpy>=1.24
+opencv-python>=4.8
+Pillow>=10.0
+tifffile>=2023.1
+czifile>=2019.7.2
+scipy>=1.11
+scikit-image>=0.21
+plotly>=5.18
+
+# ── GPU acceleration (optional) ───────────────────────────────────────────────
+#
+# 1. CuPy — accelerates Frangi filter (~8-10x speedup, biggest win)
+#    Match your CUDA version:
+#      CUDA 11.x:  pip install cupy-cuda11x
+#      CUDA 12.x:  pip install cupy-cuda12x
+#    https://docs.cupy.dev/en/stable/install.html
+#
+# 2. OpenCV CUDA — accelerates CLAHE, morphology, Gaussian blur (~4-5x)
+#    Standard opencv-python has no CUDA. Options:
+#      a) Build from source with CUDA enabled
+#      b) conda install -c conda-forge opencv  (picks up CUDA if toolkit present)
+#      c) Pre-built wheels: github.com/cudawarping/opencv-python-cuda-wheels
+#    Then: pip uninstall opencv-python && install the CUDA build
+#
+# Auto-detected at startup — no code changes needed. Toggle in sidebar.
