@@ -1,4 +1,4 @@
-# GeoMx Mask Dashboard v5
+# GeoMx Mask Dashboard 
 
 An interactive, browser-based dashboard for generating, previewing, and exporting segmentation masks from GeoMx multi-channel TIFF files. Built with Streamlit, with optional GPU acceleration for demanding stain types.
 
