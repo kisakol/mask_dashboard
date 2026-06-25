@@ -46,7 +46,7 @@ def render_logic_panel_tab() -> None:
 
     # ── Compute partitions ────────────────────────────────────────────────────
     partitions = get_partitions(use_channels)
-    partition_masks = calculate_partition_masks(partitions, base_masks, h, w)
+    partition_masks = calculate_partition_masks(partitions, base_masks, h, w, channels=use_channels)
 
     st.caption(
         "Assign each Venn partition to an output mask slot, then set priority & conflict "
@@ -203,17 +203,38 @@ def render_logic_panel_tab() -> None:
     # Build slot colors from channel_params or defaults
     slot_colors = _get_slot_colors(mask_slots, num_masks)
 
-    # Optional background: first selected channel
-    bg_img = st.session_state.preview_cache.get(use_channels[0]) if st.session_state.preview_cache else None
+    # Background channel selector — any currently-selected channel, or none
+    bg_options = ["None"] + [f"Channel {ch}" for ch in use_channels]
+    if st.session_state.get("bg_channel_choice") not in bg_options:
+        # Reset BEFORE widget instantiation to avoid a stale value that is no
+        # longer a valid option (e.g. after deselecting a channel).
+        st.session_state.bg_channel_choice = bg_options[1] if len(bg_options) > 1 else "None"
 
-    show_bg = st.toggle("Show background channel (Ch0)", value=True, key="toggle_bg")
+    bgc1, bgc2 = st.columns([2, 1])
+    with bgc1:
+        bg_choice = st.selectbox(
+            "Background channel",
+            options=bg_options,
+            key="bg_channel_choice",
+        )
+    with bgc2:
+        bg_opacity = st.slider(
+            "Background opacity", 0.0, 1.0,
+            st.session_state.get("bg_opacity", 0.25), 0.05,
+            key="bg_opacity",
+        )
+
+    bg_img = None
+    if bg_choice != "None" and st.session_state.preview_cache:
+        bg_ch = int(bg_choice.replace("Channel ", ""))
+        bg_img = st.session_state.preview_cache.get(bg_ch)
 
     comp = composite_preview(
         resolved,
         slot_colors,
         h, w,
-        bg_img=bg_img if show_bg else None,
-        bg_opacity=0.25,
+        bg_img=bg_img,
+        bg_opacity=bg_opacity,
     )
 
     # Legend

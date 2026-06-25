@@ -4,11 +4,13 @@ components/channel_tuning.py
 Tab 1 — Per-channel parameter tuning.
 
 For each selected channel:
-  • Pipeline mode selector (Blob / Cytoplasm / Thin Structures / Diffuse / Custom)
+  • Pipeline mode selector (Blob / Cytoplasm / Thin Structures / Diffuse /
+    Custom / Model-based)
   • Preprocessing controls (percentile clip, CLAHE)
   • Thresholding (histogram with live threshold line + slider, or Otsu)
   • Morphology (open kernel, dilation, hole filling, watershed)
   • Thin-structure Frangi filter controls
+  • AI Model controls (Model-based mode — optional Cellpose/StarDist addons)
   • Area filtering (min / max component size)
   • Live overlay: raw channel + coloured mask
 
@@ -19,6 +21,8 @@ import numpy as np
 import streamlit as st
 
 from config.defaults import DEFAULT_CHANNEL_COLORS, PIPELINE_MODE_NAMES, PIPELINE_MODES
+from plugins.base import ModelAddonError
+from plugins.registry import all_addons, available_addons
 from utils.pipeline import generate_mask
 from utils.render import channel_overlay, histogram_figure
 
@@ -39,8 +43,11 @@ def render_channel_tuning_tab() -> None:
         "Full resolution is computed only at export."
     )
 
-    if "base_masks_preview" not in st.session_state:
-        st.session_state.base_masks_preview = {}
+    # Rebuild fresh every run so this dict's keys exactly match use_channels —
+    # no stale entries from a previously-deselected channel can linger and
+    # corrupt downstream partition math (see Tab 2). Cheap thanks to
+    # @st.cache_data on generate_mask.
+    st.session_state.base_masks_preview = {}
 
     for ch in use_channels:
         _render_channel_panel(ch)
@@ -114,35 +121,37 @@ def _render_channel_panel(ch: int) -> None:
                         int(cp.get("clip_hi", 99)), 1,
                         key=f"clip_hi_{ch}",
                     )
-                cp["use_clahe"] = st.toggle(
-                    "CLAHE enhancement",
-                    value=bool(cp.get("use_clahe", False)),
-                    key=f"clahe_{ch}",
-                    help="Contrast Limited Adaptive Histogram Equalization. Helps with uneven illumination.",
-                )
-                if cp["use_clahe"]:
-                    cp["clahe_clip"] = st.slider(
-                        "CLAHE clip limit", 1.0, 8.0,
-                        float(cp.get("clahe_clip", 2.0)), 0.5,
-                        key=f"clahe_clip_{ch}",
+                if mode != "Model-based":
+                    cp["use_clahe"] = st.toggle(
+                        "CLAHE enhancement",
+                        value=bool(cp.get("use_clahe", False)),
+                        key=f"clahe_{ch}",
+                        help="Contrast Limited Adaptive Histogram Equalization. Helps with uneven illumination.",
                     )
+                    if cp["use_clahe"]:
+                        cp["clahe_clip"] = st.slider(
+                            "CLAHE clip limit", 1.0, 8.0,
+                            float(cp.get("clahe_clip", 2.0)), 0.5,
+                            key=f"clahe_clip_{ch}",
+                        )
 
             # ── Thresholding ──────────────────────────────────────────────────
-            with st.expander("Thresholding", expanded=True):
-                cp["threshold_method"] = st.radio(
-                    "Method",
-                    ["manual", "otsu"],
-                    index=0 if cp.get("threshold_method", "manual") == "manual" else 1,
-                    horizontal=True,
-                    key=f"tmeth_{ch}",
-                    help="Manual: you set the cutoff. Otsu: computed automatically from histogram.",
-                )
-                if cp["threshold_method"] == "manual":
-                    cp["threshold"] = st.slider(
-                        "Threshold", 0, 255,
-                        int(cp.get("threshold", 30)),
-                        key=f"thresh_{ch}",
+            if mode != "Model-based":
+                with st.expander("Thresholding", expanded=True):
+                    cp["threshold_method"] = st.radio(
+                        "Method",
+                        ["manual", "otsu"],
+                        index=0 if cp.get("threshold_method", "manual") == "manual" else 1,
+                        horizontal=True,
+                        key=f"tmeth_{ch}",
+                        help="Manual: you set the cutoff. Otsu: computed automatically from histogram.",
                     )
+                    if cp["threshold_method"] == "manual":
+                        cp["threshold"] = st.slider(
+                            "Threshold", 0, 255,
+                            int(cp.get("threshold", 30)),
+                            key=f"thresh_{ch}",
+                        )
 
             # ── Morphology ────────────────────────────────────────────────────
             with st.expander("Morphology & Shape", expanded=False):
@@ -209,6 +218,11 @@ def _render_channel_panel(ch: int) -> None:
                                 key=f"fhi_{ch}",
                             )
 
+            # ── AI Model (Model-based mode) ─────────────────────────────────────
+            if mode == "Model-based":
+                with st.expander("AI Model", expanded=True):
+                    _render_model_addon_controls(cp, ch)
+
             # ── Area filtering ────────────────────────────────────────────────
             with st.expander("Area filtering", expanded=False):
                 ac1, ac2 = st.columns(2)
@@ -230,7 +244,11 @@ def _render_channel_panel(ch: int) -> None:
         with col_right:
             # Build params for mask generation (strip non-pipeline keys)
             gen_params = {k: v for k, v in cp.items() if k not in ("mode", "color")}
-            mask = generate_mask(img, mode, gen_params)
+            try:
+                mask = generate_mask(img, mode, gen_params)
+            except ModelAddonError as e:
+                st.warning(f"⚠️ {e}")
+                mask = np.zeros_like(img, dtype=np.uint8)
 
             # Store for Tab 2
             st.session_state.base_masks_preview[ch] = mask
@@ -266,3 +284,92 @@ def _render_channel_panel(ch: int) -> None:
 
         # Write params back to session state
         st.session_state.channel_params[ch] = cp
+
+
+# ── AI Model controls (Model-based mode) ───────────────────────────────────
+
+def _render_model_addon_controls(cp: dict, ch: int) -> None:
+    """
+    Render the addon/model/confidence/diameter/GPU controls for
+    "Model-based" mode, or an install-hint message if no addon's
+    dependencies are currently importable.
+
+    Mutates `cp` in place (mirrors the pattern used by the rest of this
+    module — params are written back to session_state by the caller).
+    """
+    avail = available_addons()
+
+    if not avail:
+        st.info(
+            "No model addons are installed yet. 'Model-based' mode will "
+            "produce an empty mask until one is available.\n\n"
+            "Install one of the following, then reload the app:"
+        )
+        for addon_cls in all_addons().values():
+            st.markdown(
+                f"- **{addon_cls.display_name}** — {addon_cls.description}\n"
+                f"  \n  `{addon_cls.install_hint}`"
+            )
+        # Keep params consistent even with nothing selectable.
+        cp["model_addon"] = ""
+        cp["model_name"] = ""
+        return
+
+    addon_keys = list(avail.keys())
+    current_addon = cp.get("model_addon") or addon_keys[0]
+    if current_addon not in addon_keys:
+        current_addon = addon_keys[0]
+
+    chosen_addon_key = st.selectbox(
+        "Addon",
+        options=addon_keys,
+        index=addon_keys.index(current_addon),
+        format_func=lambda k: avail[k].display_name,
+        key=f"model_addon_{ch}",
+        help="\n\n".join(f"**{a.display_name}** — {a.description}" for a in avail.values()),
+    )
+    cp["model_addon"] = chosen_addon_key
+    addon_cls = avail[chosen_addon_key]
+
+    model_opts = addon_cls.model_options()
+    current_model = cp.get("model_name") or model_opts[0]
+    if current_model not in model_opts:
+        current_model = model_opts[0]
+
+    cp["model_name"] = st.selectbox(
+        "Pretrained model",
+        options=model_opts,
+        index=model_opts.index(current_model),
+        key=f"model_name_{ch}",
+    )
+
+    mc1, mc2 = st.columns(2)
+    with mc1:
+        cp["confidence"] = st.slider(
+            "Confidence / probability threshold", 0.0, 1.0,
+            float(cp.get("confidence", 0.5)), 0.05,
+            key=f"model_conf_{ch}",
+            help=(
+                "Higher = stricter, fewer detections. For Cellpose this maps "
+                "to flow_threshold; for StarDist, to prob_thresh."
+            ),
+        )
+    with mc2:
+        cp["diameter"] = st.number_input(
+            "Approx. object diameter (px, 0 = auto)", 0.0, 500.0,
+            float(cp.get("diameter", 30.0)), 1.0,
+            key=f"model_diam_{ch}",
+            help="Used by Cellpose to set its internal scaling. Ignored by StarDist.",
+        )
+
+    cp["use_gpu"] = st.toggle(
+        "Use GPU (if the addon's backend supports it)",
+        value=bool(cp.get("use_gpu", False)),
+        key=f"model_gpu_{ch}",
+        help="Independent of the CPU/GPU toggle above — controlled by the addon's own backend (PyTorch/TensorFlow).",
+    )
+
+    st.caption(
+        "Model output is post-processed with the Morphology and Area "
+        "filtering settings below, same as the other modes."
+    )

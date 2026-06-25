@@ -80,6 +80,30 @@ PIPELINE_MODES = {
             "min_area": 100, "max_area": 0,
         },
     },
+    "Model-based": {
+        "description": (
+            "AI segmentation via optional addons (Cellpose / StarDist). "
+            "Requires the addon's dependencies to be installed — see the "
+            "'AI Model' section below. Falls back gracefully (empty mask + "
+            "warning) if no addon is available."
+        ),
+        "params": {
+            # Filled in by the UI from plugins/registry.available_addons();
+            # empty strings mean "nothing selected yet".
+            "model_addon": "",
+            "model_name": "",
+            "confidence": 0.5,
+            "diameter": 30.0,
+            "use_gpu": False,
+            # Light preprocessing before handing the image to the model.
+            "clip_lo": 1, "clip_hi": 99,
+            # Shared post-processing (same semantics as the manual modes).
+            "open_ksize": 1,
+            "dilation_px": 0,
+            "fill_holes": True, "max_hole_size": 0,
+            "min_area": 100, "max_area": 0,
+        },
+    },
 }
 
 PIPELINE_MODE_NAMES = list(PIPELINE_MODES.keys())

@@ -7,7 +7,7 @@ Tab 3 — Export.
   • Filename template with live preview
   • Format: PNG or TIFF
   • Single-file save (upscales preview masks to full resolution)
-  • Batch mode: process every image in the folder with the same params
+  • Batch mode: process every TIFF in the folder with the same params
 """
 
 import os
@@ -96,25 +96,25 @@ def render_export_panel_tab() -> None:
     # ── Batch mode ────────────────────────────────────────────────────────────
     st.markdown("#### Batch processing")
     st.caption(
-        "Apply the **same parameters** to every image in the source folder. "
-        "Useful for running through a TMA folder after tuning on one core."
+        "Apply the **same parameters** to every TIFF in the source folder. "
+        "Useful for processing a whole GeoMx ROI set with consistent settings."
     )
 
     folder_path = st.session_state.get("folder_path", os.getcwd())
-    image_files = get_image_files(folder_path)
+    tiff_files = get_image_files(folder_path)
+    current_file = os.path.basename(st.session_state.get("current_file", ""))
 
     st.info(
-        f"Found **{len(image_files)}** image file(s) in folder. "
-        f"Will process and save masks to `{out_dir}`."
+        f"Found **{len(tiff_files)}** TIFF file(s) in folder. "
+        f"Current file: `{current_file}`."
     )
 
-    with st.expander("Show files to process"):
-        selected_files = st.multiselect(
-            "Files",
-            options=image_files,
-            default=image_files,
-            key="batch_files",
-        )
+    selected_files = st.multiselect(
+        "Files to process (default: all)",
+        options=tiff_files,
+        default=tiff_files,
+        key="batch_files",
+    )
 
     if st.button("Run Batch Export", type="secondary"):
         _run_batch(selected_files, folder_path, use_channels, mask_slots, num_masks, out_dir, template, fmt, slot_colors)
@@ -146,7 +146,7 @@ def _save_current_file(
                 full_masks[ch] = generate_mask(img_full, mode, gen_params)
 
             partitions = get_partitions(use_channels)
-            part_masks = calculate_partition_masks(partitions, full_masks, full_h, full_w)
+            part_masks = calculate_partition_masks(partitions, full_masks, full_h, full_w, channels=use_channels)
             slot_masks = aggregate_to_slots(part_masks, pmap, num_masks, full_h, full_w)
             resolved_full = resolve_conflicts(slot_masks, priority, strategies)
 
@@ -216,7 +216,7 @@ def _run_batch(
                 full_masks[ch] = generate_mask(stack_8bit[ch], mode, gen_params)
 
             partitions = get_partitions(batch_channels)
-            part_masks = calculate_partition_masks(partitions, full_masks, full_h, full_w)
+            part_masks = calculate_partition_masks(partitions, full_masks, full_h, full_w, channels=batch_channels)
             slot_masks = aggregate_to_slots(part_masks, pmap, num_masks, full_h, full_w)
             resolved_full = resolve_conflicts(slot_masks, priority, strategies)
 
@@ -232,7 +232,7 @@ def _run_batch(
         for err in errors:
             st.code(err, language=None)
     else:
-        st.success(f"✅ Batch complete. {len(files)} File(s) saved to `{out_dir}`")
+        st.success(f"✅ Batch complete — {len(files)} file(s) saved to `{out_dir}`")
 
 # ── Color helper ─────────────────────────────────────────────────────────────
 

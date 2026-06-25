@@ -73,7 +73,7 @@ def _section_data_loading() -> None:
         "Folder path",
         value=st.session_state.get("folder_path", os.getcwd()),
         key="folder_path",
-        help="Paste the directory containing your GeoMx TIFF or CZI files.",
+        help="Paste the directory containing your GeoMx TIFF files.",
     )
 
     quality = st.select_slider(
@@ -84,13 +84,13 @@ def _section_data_loading() -> None:
         help="Lower = faster response. Full resolution is used at export.",
     )
 
-    image_files = get_image_files(folder)
+    tiff_files = get_image_files(folder)
 
-    if not image_files:
-        st.caption("No image files found in folder.")
+    if not tiff_files:
+        st.caption("No TIFF files found in folder.")
         return
 
-    selected = st.selectbox("Select file", image_files, key="selected_file")
+    selected = st.selectbox("Select file", tiff_files, key="selected_file")
 
     full_path = os.path.join(folder, selected)
 
@@ -102,7 +102,7 @@ def _section_data_loading() -> None:
         with st.spinner("Loading image stack…"):
             stack = load_image_stack(full_path)
             if stack is None:
-                st.error("Failed to load image. Check the file.")
+                st.error("Failed to load TIFF. Check the file.")
                 return
 
             stack_8bit = {i: normalize_to_8bit(stack[i]) for i in range(stack.shape[0])}
@@ -115,6 +115,20 @@ def _section_data_loading() -> None:
         st.session_state.current_file = full_path
         st.session_state._loaded_quality = quality
         st.session_state.file_stem = os.path.splitext(selected)[0]
+
+        # Keep the channel selection valid for the newly-loaded file. If the
+        # new stack has fewer channels (or different indices) than before,
+        # a stale use_channels value can leave the multiselect showing
+        # channels that no longer have any backing data — and since the
+        # widget's displayed selection no longer matches what gets rendered,
+        # panels silently fail to appear until the user manually
+        # deselects/reselects.
+        available_new = list(stack_8bit.keys())
+        current_use = st.session_state.get("use_channels", [])
+        filtered = [ch for ch in current_use if ch in available_new]
+        if not filtered:
+            filtered = available_new[: min(3, len(available_new))]
+        st.session_state.use_channels = filtered
 
         # Reset derived state
         st.session_state.base_masks_preview = {}
@@ -133,7 +147,7 @@ def _section_data_loading() -> None:
 # ── Section: channel selection ────────────────────────────────────────────────
 
 def _section_channel_selection() -> None:
-    st.markdown("#### Channels")
+    st.markdown("#### 📡 Channels")
 
     available = list(st.session_state.data_cache.keys())
 
@@ -158,7 +172,7 @@ def _section_channel_selection() -> None:
 # ── Section: mask slots ───────────────────────────────────────────────────────
 
 def _section_mask_slots() -> None:
-    st.markdown("#### Output Masks")
+    st.markdown("#### 🏷️ Output Masks")
 
     num_masks = st.number_input(
         "Number of output masks",

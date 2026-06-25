@@ -174,16 +174,34 @@ def generate_mask(img_data, mode, params):
     Parameters
     ----------
     img_data : 2-D uint8 numpy array (preview or full resolution)
-    mode     : pipeline mode name string (informational only)
+    mode     : pipeline mode name string. "Model-based" routes to the
+               optional addon system in utils/model_pipeline.py /
+               plugins/ — see generate_mask_model_based() for details
+               and the ModelAddonError contract.
     params   : flat dict of all pipeline parameters
 
     Returns
     -------
     Binary uint8 mask (0 or 255), same spatial size as img_data.
     GPU acceleration is transparent — no change at the call site.
+
+    Raises
+    ------
+    plugins.base.ModelAddonError
+        Only when mode == "Model-based" and no usable addon is
+        selected/installed, or inference fails. Manual pipeline modes
+        never raise this.
     """
     p = params
     img = img_data.copy()
+
+    if mode == "Model-based":
+        # Lazy import: utils.model_pipeline imports helpers from this
+        # module, so importing it at module load time would create a
+        # circular import. Deferred here, it's also only paid for when
+        # this mode is actually used.
+        from utils.model_pipeline import generate_mask_model_based
+        return generate_mask_model_based(img, p)
 
     # 1. Percentile normalisation
     img = percentile_normalize(img, p.get("clip_lo", 1), p.get("clip_hi", 99))

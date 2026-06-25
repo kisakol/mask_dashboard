@@ -38,6 +38,7 @@ def calculate_partition_masks(
     channel_masks: dict,
     height: int,
     width: int,
+    channels: list[int] | None = None,
 ) -> dict:
     """
     For each partition, compute the pixel mask where exactly those channels
@@ -48,12 +49,19 @@ def calculate_partition_masks(
     partitions    : output of get_partitions()
     channel_masks : {ch_idx: uint8 mask (0/255)}
     height, width : spatial dimensions
+    channels      : the authoritative set of channels defining the partition
+                     universe (should match the channel set used to build
+                     `partitions`). If None, falls back to
+                     `channel_masks.keys()` for backward compatibility — but
+                     that can include stale entries left over from a previous
+                     channel selection, which silently corrupts the
+                     "all other channels negative" condition below.
 
     Returns
     -------
     {partition_tuple: uint8 mask (0/255)}
     """
-    all_ch = set(channel_masks.keys())
+    all_ch = set(channels) if channels is not None else set(channel_masks.keys())
     result = {}
     for part in partitions:
         acc = np.ones((height, width), dtype=bool)
