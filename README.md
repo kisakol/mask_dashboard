@@ -31,7 +31,7 @@ An interactive, browser-based dashboard for generating, previewing, and exportin
 
 ```bash
 # 1. Clone or download the project
-cd geomx_mask_dashboard_v5
+cd geomx_mask_dashboard
 
 # 2. Install dependencies
 pip install -r requirements.txt
